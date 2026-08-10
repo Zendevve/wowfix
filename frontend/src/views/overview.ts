@@ -20,7 +20,6 @@ import type {
 import { service } from "../api";
 import { icon, type IconName } from "../icons";
 import { toast } from "../toast";
-import { confirmDialog } from "../dialog";
 import "./overview.css";
 
 type Segment = "scan" | "doctor" | "validate";
@@ -184,16 +183,6 @@ export const view: View = {
       if (!scan || busyScan) return;
       const fixable = scan.addons.filter((a) => a.fixable);
       if (fixable.length === 0) return;
-      const confirmed = await confirmDialog({
-        title: `Repair ${fixable.length} addon${fixable.length === 1 ? "" : "s"}?`,
-        message:
-          "Every folder is backed up before a repair; removals go to the OS trash, never permanent.",
-        details: fixable.map(
-          (a) => `${a.folder_name} — ${a.issues[0]?.action_label ?? "repair"}`,
-        ),
-        confirmLabel: `Fix all (${fixable.length})`,
-      });
-      if (!confirmed) return;
       busyScan = "fixall";
       render();
       try {
@@ -278,6 +267,7 @@ export const view: View = {
               ${icon("check", 15)}<span>Fix All</span>
               ${fixable > 0 ? `<span class="ov-badge">${fixable}</span>` : ""}
             </button>
+            <span class="ov-fixall-note">Backed up first · removals go to the OS trash</span>
           </div>
         </div>`;
 

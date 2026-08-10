@@ -10,7 +10,7 @@ import "./components.css";
 import "./shell.css";
 
 import { service, mockActive } from "./api";
-import type { State, Profile } from "./types";
+import type { State } from "./types";
 import type { View, ViewId } from "./view";
 import { icon, type IconName } from "./icons";
 import { mountToasts } from "./toast";
@@ -65,7 +65,18 @@ const NAV: ViewId[] = [
   "settings",
 ];
 
-let app: { state: State; profiles: Profile[]; view: ViewId };
+// Statusbar flavor labels for the active install. A root install ("") shows
+// "Top-level"; unknown flavors drop the chip. The chip is only rendered when
+// an install is configured, so the setup fallback screen shows none.
+const FLAVOR_LABEL: Record<string, string> = {
+  "": "Top-level",
+  _retail_: "Retail",
+  _classic_: "Wrath Classic",
+  _classic_era_: "Classic Era",
+  _classic_tbc_: "TBC Classic",
+};
+
+let app: { state: State; view: ViewId };
 let current: View | null = null;
 
 function viewIdFromQuery(): ViewId | null {
@@ -111,12 +122,12 @@ function renderSidebar(): void {
 }
 
 function renderStatus(): void {
-  const profile = app.profiles.find((p) => p.id === app.state.profile_id);
   const backend = mockActive ? "mock" : `v${escapeHtml(app.state.version)}`;
+  const flavor = app.state.has_install ? (FLAVOR_LABEL[app.state.flavor] ?? "") : "";
   statusbar.innerHTML = `
     <div class="statusbar-left">
       <span class="status-chip">${escapeHtml(VIEWS[app.view].label)}</span>
-      ${app.state.has_install ? `<span class="status-chip">${escapeHtml(profile?.name ?? app.state.profile_name)}</span>` : ""}
+      ${flavor ? `<span class="status-chip">${escapeHtml(flavor)}</span>` : ""}
     </div>
     <div class="statusbar-right">
       ${mockActive ? `<span class="status-chip mock">MOCK</span>` : ""}
@@ -155,14 +166,10 @@ function go(viewId: ViewId): void {
 
 async function boot(): Promise<void> {
   try {
-    const [state, profiles] = await Promise.all([
-      service.GetState(),
-      service.Profiles(),
-    ]);
+    const state = await service.GetState();
     const requested = viewIdFromQuery();
     app = {
       state,
-      profiles,
       view: state.has_install ? (requested ?? "overview") : "setup",
     };
     syncChrome();

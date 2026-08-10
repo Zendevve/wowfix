@@ -1,31 +1,15 @@
-// First-run setup: full-window (main.ts hides the sidebar). Auto-detects
-// WoW installs and shows them as spotlight cards, or takes a manual path
-// (native folder picker via the Wails runtime, folder-input fallback).
-// Completing the flow persists the install and reloads the shell, which
-// re-reads state and routes into the app.
+// First-run setup fallback: full-window (main.ts hides the sidebar). Shows
+// only when auto-detection found nothing or the saved path is stale. A
+// single path field + Browse (native folder picker via the Wails runtime,
+// folder-input fallback). Completing the flow persists the install and
+// reloads the shell, which re-reads state and routes into the app.
 
 import type { View } from "../view";
-import type { Install, Profile } from "../types";
+import type { Install } from "../types";
 import { service, mockActive } from "../api";
 import { icon } from "../icons";
 import { toast } from "../toast";
 import "./setup.css";
-
-const FLAVORS: { value: string; label: string }[] = [
-  { value: "_retail_", label: "_retail_ — Retail" },
-  { value: "_classic_", label: "_classic_ — Wrath / Cataclysm Classic" },
-  { value: "_classic_era_", label: "_classic_era_ — Classic Era" },
-  { value: "_classic_tbc_", label: "_classic_tbc_ — TBC Classic" },
-  { value: "root", label: "root — addons at the top level" },
-];
-
-const FLAVOR_LABEL: Record<string, string> = {
-  _retail_: "Retail",
-  _classic_: "Wrath / Cataclysm Classic",
-  _classic_era_: "Classic Era",
-  _classic_tbc_: "TBC Classic",
-  root: "Top-level install",
-};
 
 // Manual path typing: derive the client flavor from a known folder segment.
 // Order matters — the longer segments contain `_classic_` as a substring.
@@ -44,10 +28,6 @@ function deriveFlavorFromPath(path: string): string | null {
   return null;
 }
 
-const CARD_TINTS = ["-violet", "-magenta", "-orange"] as const;
-
-type Busy = "detect" | "setup";
-
 // Only one view mounts at a time; a single flag keeps post-await renders
 // from clobbering the host after the shell has unmounted us.
 let disposed: { gone: boolean } | null = null;
@@ -61,76 +41,24 @@ export const view: View = {
     const isGone = () => disposed?.gone ?? false;
     const local = {
       root: "",
-      flavor: "_retail_",
-      profileId: "",
-      selected: -1,
-      busy: "detect" as Busy | null,
+      flavor: null as string | null,
+      busy: false,
       error: null as string | null,
     };
-    let detected: Install[] = [];
-    let profiles: Profile[] = [];
 
     const render = (): void => {
-      const busy = local.busy !== null;
-      const flavorOptions = FLAVORS.map(
-        (f) =>
-          `<option value="${f.value}" ${f.value === local.flavor ? "selected" : ""}>${escapeHtml(f.label)}</option>`,
-      ).join("");
-      const profileOptions = profiles
-        .map(
-          (p) =>
-            `<option value="${p.id}" ${p.id === local.profileId ? "selected" : ""}>${escapeHtml(p.name)} (${escapeHtml(p.family)})</option>`,
-        )
-        .join("");
-      const cards =
-        local.busy === "detect" && detected.length === 0
-          ? `<p class="setup-detecting">${icon("refresh", 14)} Looking for World of Warcraft installs…</p>`
-          : detected
-              .map((d, i) => {
-                const tint = CARD_TINTS[i % CARD_TINTS.length];
-                return `
-                  <button type="button" class="spotlight-card setup-card ${tint}${i === local.selected ? " selected" : ""}"
-                    data-pick="${i}" aria-pressed="${i === local.selected}" ${busy ? "disabled" : ""}>
-                    <span class="spotlight-kicker">${escapeHtml(d.flavor)}</span>
-                    <span class="spotlight-title">${escapeHtml(FLAVOR_LABEL[d.flavor] ?? d.flavor)}</span>
-                    <span class="spotlight-body setup-card-path">${escapeHtml(d.root)}</span>
-                    <span class="setup-card-meta">
-                      <span class="setup-chip">${icon("check-circle", 12)}v${escapeHtml(d.version)}</span>
-                      <span class="setup-chip">${escapeHtml(d.confidence)} confidence</span>
-                      ${
-                        i === local.selected
-                          ? `<span class="setup-chip -on">${icon("check", 12)}Selected</span>`
-                          : ""
-                      }
-                    </span>
-                  </button>`;
-              })
-              .join("");
-
       host.innerHTML = `
         <main class="setup-page">
           <header class="setup-hero">
             <p class="setup-kicker">wowfix — first run</p>
             <h1 class="setup-title">Repair your addons.</h1>
-            <p class="setup-sub">Point wowfix at a World of Warcraft install to scan for the common
-              addon installation problems and fix them safely. Every change is backed up first;
-              removals go to the OS trash, never permanent.</p>
+            <p class="setup-sub">Tell wowfix where your World of Warcraft lives and it will scan
+              and repair your addons — every change is backed up, removals go to the OS trash.</p>
           </header>
-
-          <section class="setup-section" aria-label="Detected installs">
-            <div class="setup-section-head">
-              <h2 class="setup-section-title">Detected installs</h2>
-              <span class="setup-section-status">
-                ${local.busy === "detect" ? "Scanning common locations…" : detected.length > 0 ? `${detected.length} found` : ""}
-              </span>
-            </div>
-            <div class="setup-cards">${cards}</div>
-            ${detected.length === 0 && local.busy !== "detect" ? `<p class="setup-section-status">Nothing found — enter the path manually below.</p>` : ""}
-          </section>
 
           <section class="setup-form" aria-label="Manual install entry">
             <div class="setup-form-head">
-              <h2 class="setup-form-title">Or point us at your install</h2>
+              <h2 class="setup-form-title">Point us at your install</h2>
               <p class="setup-form-sub">The folder that contains <span class="mono">Interface/AddOns</span> for the client you play.</p>
             </div>
 
@@ -140,92 +68,51 @@ export const view: View = {
                 <input id="setup-root" class="text-input setup-root-input" type="text"
                   spellcheck="false" autocomplete="off" placeholder="C:\\Games\\World of Warcraft"
                   value="${escapeAttr(local.root)}" aria-describedby="setup-root-hint" />
-                <button type="button" class="btn-secondary setup-browse" data-browse ${busy ? "disabled" : ""}>
+                <button type="button" class="btn-secondary setup-browse" data-browse ${local.busy ? "disabled" : ""}>
                   ${icon("folder", 15)}<span>Browse…</span>
                 </button>
               </div>
               <p class="setup-hint" id="setup-root-hint">The client flavor is derived from the path when possible.</p>
             </div>
 
-            <div class="setup-fields-row">
-              <div class="setup-field">
-                <label class="setup-label" for="setup-flavor">Client flavor</label>
-                <div class="setup-select">${icon("chevron-down", 14)}<select id="setup-flavor">${flavorOptions}</select></div>
-              </div>
-              <div class="setup-field">
-                <label class="setup-label" for="setup-profile">Game version</label>
-                <div class="setup-select">${icon("chevron-down", 14)}<select id="setup-profile">${profileOptions}</select></div>
-              </div>
-            </div>
-
             ${local.error ? `<p class="setup-error" role="alert">${icon("x-circle", 14)}<span>${escapeHtml(local.error)}</span></p>` : ""}
 
-            <button class="btn-primary setup-cta" data-continue ${busy ? "disabled" : ""}>
+            <button class="btn-primary setup-cta" data-continue ${local.busy ? "disabled" : ""}>
               ${
-                local.busy === "setup"
+                local.busy
                   ? `<span class="setup-spinner"></span><span>Setting up…</span>`
-                  : `${icon("check", 16)}<span>Continue to scan</span>`
+                  : `${icon("check", 16)}<span>Start using wowfix</span>`
               }
             </button>
           </section>
         </main>`;
 
       const rootInput = host.querySelector<HTMLInputElement>("#setup-root")!;
-      const flavorSel = host.querySelector<HTMLSelectElement>("#setup-flavor");
-      const profileSel = host.querySelector<HTMLSelectElement>("#setup-profile");
 
       rootInput.addEventListener("input", () => {
         local.root = rootInput.value.trim();
         const derived = deriveFlavorFromPath(local.root);
-        if (derived && flavorSel) flavorSel.value = derived;
-        local.selected = -1;
+        if (derived) local.flavor = derived;
         local.error = null;
-      });
-
-      flavorSel?.addEventListener("change", () => {
-        local.flavor = flavorSel.value;
-        local.selected = -1;
-      });
-
-      profileSel?.addEventListener("change", () => {
-        local.profileId = profileSel.value;
       });
 
       host.querySelector<HTMLElement>("[data-browse]")?.addEventListener("click", async () => {
-        local.busy = "detect";
         local.error = null;
-        render();
         try {
           const picked = await pickFolder();
           if (picked) {
             local.root = picked;
             const derived = deriveFlavorFromPath(picked);
             if (derived) local.flavor = derived;
-            local.selected = -1;
+            if (!isGone()) {
+              render();
+              host.querySelector<HTMLInputElement>("#setup-root")?.focus();
+            }
           }
         } catch (err) {
           local.error = errText(err, "Could not open the folder picker");
-        } finally {
-          local.busy = null;
-          if (!isGone()) {
-            render();
-            host.querySelector<HTMLInputElement>("#setup-root")?.focus();
-          }
+          if (!isGone()) render();
         }
-      });
-
-      host.querySelectorAll<HTMLElement>("[data-pick]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const d = detected[Number(btn.dataset.pick)];
-          if (!d) return;
-          local.root = d.root;
-          local.flavor = d.flavor;
-          if (d.profile_id) local.profileId = d.profile_id;
-          local.selected = Number(btn.dataset.pick);
-          local.error = null;
-          render();
-          host.querySelector<HTMLInputElement>("#setup-root")?.focus();
-        });
       });
 
       host.querySelector<HTMLElement>("[data-continue]")?.addEventListener("click", async () => {
@@ -234,18 +121,21 @@ export const view: View = {
           render();
           return;
         }
-        local.busy = "setup";
+        local.busy = true;
         local.error = null;
         render();
         try {
-          await service.SetInstall(local.root, local.flavor);
-          if (local.profileId) await service.SetProfile(local.profileId);
+          // The backend detects the game version from the client exe; the
+          // flavor only narrows the client folder when the path gives it away.
+          // Persist the detected profile too, so cfg.profile is not left stale.
+          const installed: Install = await service.SetInstall(local.root, local.flavor ?? "");
+          if (installed.profile_id) await service.SetProfile(installed.profile_id);
           // The shell reads state once at boot; after the install is
           // persisted, reloading hands control back to it cleanly.
           history.replaceState(null, "", mockActive ? "?mock=1" : "?view=overview");
           window.location.reload();
         } catch (err) {
-          local.busy = null;
+          local.busy = false;
           local.error = errText(err, "Could not set up this install");
           toast({ type: "error", title: "Setup failed", message: local.error });
           render();
@@ -258,26 +148,20 @@ export const view: View = {
     rootInput?.focus();
     rootInput?.setSelectionRange(rootInput.value.length, rootInput.value.length);
 
-    // Auto-detect on first run; the wizard has no manual refresh button.
+    // A stale saved path (auto-detection no longer finds it) is prefilled
+    // so the user can re-validate or replace it.
     try {
-      const [det, profs] = await Promise.all([
-        service.DetectInstalls(),
-        service.Profiles(),
-      ]);
-      detected = det;
-      profiles = profs;
-      if (detected.length > 0) {
-        local.root = detected[0].root;
-        local.flavor = detected[0].flavor;
-        if (detected[0].profile_id) local.profileId = detected[0].profile_id;
-        local.selected = 0;
+      const state = await service.GetState();
+      if (!isGone() && state.wow_path && !local.root) {
+        local.root = state.wow_path;
+        const derived = deriveFlavorFromPath(local.root);
+        if (derived) local.flavor = derived;
+        render();
       }
-      local.profileId = local.profileId || profiles[0]?.id || "";
     } catch (err) {
-      local.error = errText(err, "Install detection failed");
-    } finally {
-      local.busy = null;
-      if (!isGone()) render();
+      if (isGone()) return;
+      local.error = errText(err, "Could not read the saved install path");
+      render();
     }
   },
   unmount() {

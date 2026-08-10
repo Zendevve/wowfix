@@ -1,7 +1,8 @@
 import type { MockData } from "./index";
 
-// First-run fixtures: three detected WoW installs across the client
-// families, plus the game-version profiles the setup picker offers.
+// Fixtures for the setup fallback. The wizard no longer auto-detects or
+// offers version pickers, but the mock service is global, so DetectInstalls
+// / Profiles stay available for ?mock=1 flows that still query them.
 
 export const data: MockData = {
   DetectInstalls: () => [
@@ -34,8 +35,8 @@ export const data: MockData = {
       confidence: "medium",
     },
   ],
-  // The wizard reloads the shell after SetInstall + SetProfile, so a
-  // static Install value is enough for the mock.
+  // The setup flow reloads the shell after SetInstall, so a static Install
+  // value is enough for the mock.
   SetInstall: () => ({
     root: "C:\\Program Files (x86)\\World of Warcraft",
     flavor: "_retail_",

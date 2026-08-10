@@ -1,7 +1,11 @@
-// Settings view. Three sections: the config keys (inline edit → SetConfigKey),
-// the installations grid (InstallsStatus + SetInstall/SetProfile + Scan +
-// SyncUpdatesToAll), and an About block (version from GetState). Busy states
-// disable the acting control only; failures surface at the section level.
+// Settings view. Main content: the active-install card (read-only root /
+// flavor / profile, Change install via native folder picker → SetInstall +
+// SetProfile), the behavior toggles (auto_backup, confirmations), and an
+// About block (version from GetState). Everything else — the raw config keys
+// (inline edit → SetConfigKey) and the installations grid (InstallsStatus +
+// SetInstall/SetProfile + Scan + SyncUpdatesToAll) — lives behind the
+// "Advanced" disclosure. Busy states disable the acting control only;
+// failures surface at the section level.
 
 import type { View } from "../view";
 import type {
@@ -9,6 +13,7 @@ import type {
   Install,
   InstallStatus,
   InstallsStatusResult,
+  Profile,
   SyncResult,
 } from "../types";
 import { icon } from "../icons";
@@ -56,7 +61,6 @@ const KEY_HINTS: Record<string, string> = {
 
 const GROUP_ORDER: { title: string; keys: readonly string[] }[] = [
   { title: "Install", keys: ["wow_path", "flavor", "profile", "collection"] },
-  { title: "Behavior", keys: ["auto_backup", "confirmations"] },
   { title: "Paths & API key", keys: ["backups_dir", "curseforge_api_key", "collections_dir"] },
 ];
 
@@ -67,6 +71,7 @@ export const view: View = {
   mount(host) {
     let cfg: ConfigView | null = null;
     let installs: InstallsStatusResult | null = null;
+    let profiles: Profile[] = [];
     let version = "";
     let cfgError: string | null = null;
     let installsError: string | null = null;
@@ -74,6 +79,7 @@ export const view: View = {
     let saving: string | null = null; // config key being saved
     let activating = ""; // install root being set active
     let scanning = ""; // install root being scanned
+    let changing = false; // Change install (folder picker → SetInstall)
     let syncing = false;
     let syncResult: SyncResult | null = null;
     let drafts: Record<string, string> = {};
@@ -100,6 +106,11 @@ export const view: View = {
           curseforge_api_key: c.curseforge_api_key,
           collections_dir: c.collections_dir,
         };
+        try {
+          profiles = await service.Profiles();
+        } catch {
+          profiles = [];
+        }
       } catch (err) {
         toast({
           type: "error",
@@ -154,6 +165,36 @@ export const view: View = {
         installsError = errText(err);
       }
       rerender();
+    };
+
+    // Change install: native folder picker → SetInstall with an empty flavor
+    // (the backend derives it) → SetProfile from the returned install. The
+    // full load() refresh keeps config, installs and profiles in sync.
+    const changeInstall = async (): Promise<void> => {
+      if (changing) return;
+      changing = true;
+      rerender();
+      try {
+        const picked = await pickFolder();
+        if (!picked) return;
+        const installed: Install = await service.SetInstall(picked, "");
+        if (installed.profile_id) await service.SetProfile(installed.profile_id);
+        toast({
+          type: "ok",
+          title: "Active install changed",
+          message: picked,
+        });
+        await load();
+      } catch (err) {
+        toast({
+          type: "error",
+          title: "Could not change install",
+          message: errText(err),
+        });
+      } finally {
+        changing = false;
+        rerender();
+      }
     };
 
     const setActive = async (inst: InstallStatus): Promise<void> => {
@@ -268,6 +309,11 @@ export const view: View = {
     };
 
     const render = (): void => {
+      // Snapshot the Advanced disclosure before innerHTML is rebuilt: inline
+      // edits re-render on every keystroke, and a fresh <details> is closed by
+      // default — it would otherwise slam shut mid-typing.
+      const advancedOpen =
+        (host.querySelector(".settings-advanced") as HTMLDetailsElement | null)?.open ?? false;
       if (loading) {
         host.innerHTML = `
           <section class="view-page settings-page">
@@ -287,9 +333,10 @@ export const view: View = {
             <p class="view-sub">Configuration, installations and app information.</p>
           </div>
 
-          ${renderConfigSection()}
-          ${renderInstallsSection()}
+          ${renderActiveInstallSection()}
+          ${renderTogglesSection()}
           ${renderAboutSection()}
+          ${renderAdvancedSection(advancedOpen)}
         </section>`;
 
       host.querySelectorAll<HTMLInputElement>("[data-text]").forEach((input) => {
@@ -331,7 +378,85 @@ export const view: View = {
       host.querySelector("[data-update-all]")?.addEventListener("click", () => {
         void updateAll();
       });
+      host.querySelector("[data-change-install]")?.addEventListener("click", () => {
+        void changeInstall();
+      });
     };
+
+    const renderActiveInstallSection = (): string => {
+      // The active install is whatever the saved config points at; fall back
+      // to the first existing detected install so a zero-config adopt still
+      // has a card. installs.active is not part of the InstallsStatusResult
+      // contract, so the root comes from cfg.wow_path (or the match).
+      const activeRoot =
+        cfg?.wow_path || installs?.installs.find((i) => i.exists)?.root || "";
+      const activeInst = installs?.installs.find((i) => i.root === activeRoot);
+      const flavor = activeInst?.flavor || cfg?.flavor || "";
+      const profileId = activeInst?.profile_id || cfg?.profile || "";
+      const profileName =
+        profiles.find((p) => p.id === profileId)?.name || profileId || "";
+      return `
+        <section class="settings-section" aria-labelledby="settings-active-title">
+          <div class="section-head">
+            <div class="section-head-text">
+              <h2 id="settings-active-title" class="section-title">Active install</h2>
+              <p class="section-desc">The install wowfix scans, repairs and updates. Switch anytime — the active profile follows.</p>
+            </div>
+          </div>
+          <div class="card active-install-card">
+            <div class="active-install-grid">
+              <div class="active-install-item">
+                <span class="active-install-key">Install</span>
+                ${
+                  activeRoot
+                    ? `<span class="active-install-val mono" title="${escapeAttr(activeRoot)}">${escapeHtml(truncateMiddle(activeRoot, 52))}</span>`
+                    : `<span class="active-install-val active-install-empty">No install selected</span>`
+                }
+              </div>
+              <div class="active-install-item">
+                <span class="active-install-key">Flavor</span>
+                <span class="active-install-val">${escapeHtml(flavorLabel(flavor))}</span>
+              </div>
+              <div class="active-install-item">
+                <span class="active-install-key">Profile</span>
+                <span class="active-install-val">${profileName ? escapeHtml(profileName) : '<span class="active-install-empty">—</span>'}</span>
+              </div>
+            </div>
+            <div class="active-install-actions">
+              <button class="btn-secondary" data-change-install ${changing ? "disabled" : ""}>
+                ${changing ? icon("refresh", 15) : icon("folder", 15)}
+                <span>${changing ? "Changing…" : "Change install…"}</span>
+              </button>
+            </div>
+          </div>
+        </section>`;
+    };
+
+    const renderTogglesSection = (): string => `
+      <section class="settings-section" aria-labelledby="settings-behavior-title">
+        <div class="section-head">
+          <div class="section-head-text">
+            <h2 id="settings-behavior-title" class="section-title">Behavior</h2>
+            <p class="section-desc">How wowfix acts during repairs and updates.</p>
+          </div>
+        </div>
+        ${
+          cfg
+            ? `<div class="card cfg-card">${BOOL_KEYS.map(renderConfigRow).join("")}</div>`
+            : `<div class="card"><p class="section-desc">Behavior settings unavailable.</p></div>`
+        }
+      </section>`;
+
+    const renderAdvancedSection = (open: boolean): string => `
+      <details class="settings-advanced" ${open ? "open" : ""}>
+        <summary>
+          ${icon("chevron-down", 15)}
+          <span class="advanced-summary-title">Advanced</span>
+          <span class="advanced-summary-hint">raw config keys · all installs</span>
+        </summary>
+        ${renderConfigSection()}
+        ${renderInstallsSection()}
+      </details>`;
 
     const renderConfigSection = (): string => {
       const groups = cfg
@@ -540,6 +665,52 @@ export const view: View = {
     void load();
   },
 };
+
+/** Native folder picker when the Wails runtime is present; folder-input
+ *  fallback otherwise (returns the selected folder's name — the browser
+ *  never exposes absolute paths). Mirrors setup.ts. */
+function pickFolder(): Promise<string | null> {
+  const rt = (window as unknown as {
+    runtime?: { OpenDirectoryDialog?: (opts: unknown) => Promise<string | null> };
+  }).runtime;
+  if (rt?.OpenDirectoryDialog) {
+    return rt.OpenDirectoryDialog({
+      title: "Select your World of Warcraft install",
+    });
+  }
+  return new Promise<string | null>((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.setAttribute("webkitdirectory", "");
+    input.setAttribute("directory", "");
+    input.style.display = "none";
+    input.addEventListener("change", () => {
+      const first = input.files?.[0];
+      resolve(first ? (first.webkitRelativePath.split("/")[0] || null) : null);
+      input.remove();
+    });
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
+/** Display labels for install flavors; accepts both "_retail_" (backend
+ *  install flavor) and "retail" (config flavor) spellings. Unknown flavors
+ *  fall back to the raw value. */
+const FLAVOR_LABEL: Record<string, string> = {
+  retail: "Retail",
+  classic: "Wrath Classic",
+  classic_era: "Classic Era",
+  classic_tbc: "TBC Classic",
+  root: "Top-level",
+};
+
+function flavorLabel(flavor: string | undefined | null): string {
+  if (!flavor) return "Top-level";
+  const key = flavor.replace(/^_+|_+$/g, "");
+  if (key === "root") return "Top-level";
+  return FLAVOR_LABEL[key] ?? flavor;
+}
 
 function coerceValue(key: string, value: string): unknown {
   if (key === "auto_backup" || key === "confirmations") return value === "true";

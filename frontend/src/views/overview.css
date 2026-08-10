@@ -82,6 +82,16 @@
   gap: var(--sp-3);
 }
 
+/* Inline trust copy beside Fix All (one-click repair, no dialog). */
+.ov-fixall-note {
+  color: var(--ink-faint);
+  font-size: var(--caption);
+  font-weight: var(--caption-w);
+  line-height: var(--caption-lh);
+  letter-spacing: var(--caption-ls);
+  white-space: nowrap;
+}
+
 /* Badge-counted Fix All: dark count on the white pill. */
 .ov-badge {
   display: inline-flex;

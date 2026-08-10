@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-08-10
+
+Zero-config first run: wowfix auto-adopts the detected WoW install, scans and repairs with one click — the setup wizard is now just a fallback.
+
+### Added
+
+- **Zero-config first run** — when no install is configured, wowfix auto-detects the WoW installation on launch and adopts it: `wow_path` and `flavor` are set from the detected client (the game `profile` follows when the detected client identifies a version), and the app lands on Overview with a scan ready. No wizard, no game-version questions.
+- **One-click Fix All** — the Overview "Fix all" action repairs every detected problem in a single click; reversible repairs never prompt (each change is backed up first, removals go to the OS trash).
+- **Settings "Advanced" section** — the Settings view leads with the active-install card (root/flavor/profile read-only), "Change install", behavior toggles and About; the raw config-key fields and per-install grid moved under an "Advanced" disclosure (all existing service calls stay reachable).
+- **Statusbar flavor label** — the statusbar now shows the client flavor (Retail / Wrath Classic / Classic Era / TBC Classic / Top-level) instead of the profile name; the chip is dropped when the flavor is unknown.
+
+### Changed
+
+- **Setup wizard reduced to a fallback** — the wizard now appears only when no install can be found automatically or the saved path is stale: a single path field + Browse + "Start using wowfix". Flavor derives from the typed path; the profile comes from detection at install time.
+- **Safety model** — the GUI no longer prompts for reversible repairs (auto-backup + OS trash make them safe); confirmation dialogs remain for genuinely destructive operations: restore-overwrite, SavedVariables reset and collection delete.
+
 ## [3.0.0] - 2026-08-08
 
 ### Added

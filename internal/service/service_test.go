@@ -23,6 +23,7 @@ import (
 	"github.com/wowfix/wowfix/internal/config"
 	"github.com/wowfix/wowfix/internal/detector"
 	"github.com/wowfix/wowfix/internal/importexport"
+	"github.com/wowfix/wowfix/internal/logger"
 	"github.com/wowfix/wowfix/internal/models"
 	"github.com/wowfix/wowfix/internal/scanner"
 )
@@ -274,6 +275,311 @@ func TestGetStateValidPath(t *testing.T) {
 	}
 	if st.ProfileID != "wrath" {
 		t.Errorf("profile_id = %q, want wrath (default)", st.ProfileID)
+	}
+}
+
+// TestGetStateAutoAdopts covers the first-run adoption path: with no
+// saved wow_path, a detected install is adopted (persisted and
+// reported as the active install) instead of routing to the setup
+// wizard. The autoDetect seam points detection at a temp fixture —
+// no real-machine calls.
+func TestGetStateAutoAdopts(t *testing.T) {
+	store := config.NewStoreAt(filepath.Join(t.TempDir(), "config.json"))
+	if err := store.Save(config.Default()); err != nil {
+		t.Fatal(err)
+	}
+	s := New(store)
+
+	root := t.TempDir()
+	addonsDir := filepath.Join(root, "_retail_", "Interface", "AddOns")
+	if err := os.MkdirAll(addonsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.autoDetect = func(context.Context) ([]detector.Installation, error) {
+		// Mirror AutoDetect's per-install DetectPath so the flavor and
+		// profile derive from the fixture layout.
+		inst, err := detector.DetectPath(root)
+		if err != nil {
+			return nil, err
+		}
+		return []detector.Installation{*inst}, nil
+	}
+
+	st, err := s.GetState()
+	if err != nil {
+		t.Fatalf("GetState failed: %v", err)
+	}
+	if !st.HasInstall {
+		t.Fatal("has_install = false, want true after auto-adopt")
+	}
+	if st.WoWPath != root {
+		t.Errorf("wow_path = %q, want %q", st.WoWPath, root)
+	}
+	if st.Flavor != detector.FlavorRetail {
+		t.Errorf("flavor = %q, want %q", st.Flavor, detector.FlavorRetail)
+	}
+	if st.AddonsDir != addonsDir {
+		t.Errorf("addons_dir = %q, want %q", st.AddonsDir, addonsDir)
+	}
+	if st.ProfileID != "retail" {
+		t.Errorf("profile_id = %q, want %q", st.ProfileID, "retail")
+	}
+
+	// The adoption is persisted: the store file now carries wow_path,
+	// flavor and the install-derived profile.
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("reload failed: %v", err)
+	}
+	if reloaded.WoWPath != root {
+		t.Errorf("saved wow_path = %q, want %q", reloaded.WoWPath, root)
+	}
+	if reloaded.Flavor != detector.FlavorRetail {
+		t.Errorf("saved flavor = %q, want %q", reloaded.Flavor, detector.FlavorRetail)
+	}
+	if reloaded.Profile != "retail" {
+		t.Errorf("saved profile = %q, want %q", reloaded.Profile, "retail")
+	}
+
+	// Nothing detected: setup state, no adoption, no persistence.
+	s.autoDetect = func(context.Context) ([]detector.Installation, error) {
+		return nil, nil
+	}
+	// Fresh config: forget the adopted path so this exercises the
+	// empty-wow_path branch again.
+	if err := store.Save(config.Default()); err != nil {
+		t.Fatal(err)
+	}
+	st, err = s.GetState()
+	if err != nil {
+		t.Fatalf("GetState failed for empty detection: %v", err)
+	}
+	if st.HasInstall {
+		t.Fatal("has_install = true, want false when nothing is detected")
+	}
+	reloaded, err = store.Load()
+	if err != nil {
+		t.Fatalf("reload failed: %v", err)
+	}
+	if reloaded.WoWPath != "" {
+		t.Errorf("saved wow_path = %q, want empty (no adoption)", reloaded.WoWPath)
+	}
+}
+
+// TestGetStateAutoAdoptSaveFailure covers the degraded adoption path:
+// when the config store cannot persist the adopted install, GetState
+// logs the failure and still returns the full install state for this
+// session instead of bricking first-run boot.
+func TestGetStateAutoAdoptSaveFailure(t *testing.T) {
+	store := config.NewStoreAt(filepath.Join(t.TempDir(), "config.json"))
+	if err := store.Save(config.Default()); err != nil {
+		t.Fatal(err)
+	}
+	s := New(store)
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "_retail_", "Interface", "AddOns"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.autoDetect = func(context.Context) ([]detector.Installation, error) {
+		inst, err := detector.DetectPath(root)
+		if err != nil {
+			return nil, err
+		}
+		return []detector.Installation{*inst}, nil
+	}
+
+	// Break Save deterministically on any platform: Save writes the
+	// temp sibling before renaming, and a directory squatting on the
+	// temp path makes os.WriteFile fail while Load keeps working.
+	if err := os.MkdirAll(store.Path()+".tmp", 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := s.GetState()
+	if err != nil {
+		t.Fatalf("GetState failed on unwritable store: %v", err)
+	}
+	if !st.HasInstall {
+		t.Fatal("has_install = false, want true: adoption must survive a failed persist")
+	}
+	if st.WoWPath != root {
+		t.Errorf("wow_path = %q, want %q", st.WoWPath, root)
+	}
+	if st.ProfileID != "retail" {
+		t.Errorf("profile_id = %q, want %q (in-memory adoption)", st.ProfileID, "retail")
+	}
+
+	// The failure is logged, not fatal.
+	var logged bool
+	for _, e := range s.log.Entries() {
+		if e.Level == logger.LevelError && strings.Contains(e.Message, "auto-adopt") {
+			logged = true
+		}
+	}
+	if !logged {
+		t.Error("no error entry logged for the failed persist")
+	}
+
+	// Nothing was persisted: the on-disk config still has no wow_path.
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("reload failed: %v", err)
+	}
+	if reloaded.WoWPath != "" {
+		t.Errorf("saved wow_path = %q, want empty (persist failed)", reloaded.WoWPath)
+	}
+}
+
+// TestGetStateAutoAdoptPreservesConfig covers the config-preservation
+// contract: adoption changes wow_path/flavor/profile only, leaving
+// every other saved preference untouched.
+func TestGetStateAutoAdoptPreservesConfig(t *testing.T) {
+	store := config.NewStoreAt(filepath.Join(t.TempDir(), "config.json"))
+	cfg := config.Default()
+	cfg.AutoBackup = false
+	cfg.Confirmations = false
+	cfg.Collection = "some-id"
+	if err := store.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	s := New(store)
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "_retail_", "Interface", "AddOns"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.autoDetect = func(context.Context) ([]detector.Installation, error) {
+		inst, err := detector.DetectPath(root)
+		if err != nil {
+			return nil, err
+		}
+		return []detector.Installation{*inst}, nil
+	}
+
+	st, err := s.GetState()
+	if err != nil {
+		t.Fatalf("GetState failed: %v", err)
+	}
+	if !st.HasInstall {
+		t.Fatal("has_install = false, want true after auto-adopt")
+	}
+
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("reload failed: %v", err)
+	}
+	if reloaded.WoWPath != root {
+		t.Errorf("saved wow_path = %q, want %q", reloaded.WoWPath, root)
+	}
+	if reloaded.Flavor != detector.FlavorRetail {
+		t.Errorf("saved flavor = %q, want %q", reloaded.Flavor, detector.FlavorRetail)
+	}
+	if reloaded.Profile != "retail" {
+		t.Errorf("saved profile = %q, want %q", reloaded.Profile, "retail")
+	}
+	if reloaded.AutoBackup {
+		t.Error("saved auto_backup = true, want the seeded false preserved")
+	}
+	if reloaded.Confirmations {
+		t.Error("saved confirmations = true, want the seeded false preserved")
+	}
+	if reloaded.Collection != "some-id" {
+		t.Errorf("saved collection = %q, want %q", reloaded.Collection, "some-id")
+	}
+}
+
+// TestGetStateAutoAdoptRootFlavor covers a root-layout install:
+// Interface/AddOns lives directly under the root (no flavor folder),
+// so adoption yields Flavor=="" and still persists.
+func TestGetStateAutoAdoptRootFlavor(t *testing.T) {
+	store := config.NewStoreAt(filepath.Join(t.TempDir(), "config.json"))
+	if err := store.Save(config.Default()); err != nil {
+		t.Fatal(err)
+	}
+	s := New(store)
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "Interface", "AddOns"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.autoDetect = func(context.Context) ([]detector.Installation, error) {
+		inst, err := detector.DetectPath(root)
+		if err != nil {
+			return nil, err
+		}
+		return []detector.Installation{*inst}, nil
+	}
+
+	st, err := s.GetState()
+	if err != nil {
+		t.Fatalf("GetState failed: %v", err)
+	}
+	if !st.HasInstall {
+		t.Fatal("has_install = false, want true after auto-adopt")
+	}
+	if st.Flavor != "" {
+		t.Errorf("flavor = %q, want empty (root layout)", st.Flavor)
+	}
+	if st.WoWPath != root {
+		t.Errorf("wow_path = %q, want %q", st.WoWPath, root)
+	}
+	// Root layout has no install-derived profile: the saved default
+	// stays untouched.
+	if st.ProfileID != "wrath" {
+		t.Errorf("profile_id = %q, want %q (saved default)", st.ProfileID, "wrath")
+	}
+
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("reload failed: %v", err)
+	}
+	if reloaded.WoWPath != root {
+		t.Errorf("saved wow_path = %q, want %q", reloaded.WoWPath, root)
+	}
+	if reloaded.Flavor != "" {
+		t.Errorf("saved flavor = %q, want empty", reloaded.Flavor)
+	}
+	if reloaded.Profile != "wrath" {
+		t.Errorf("saved profile = %q, want %q (untouched)", reloaded.Profile, "wrath")
+	}
+}
+
+// TestSetInstallPersistsProfile covers the fallback setup flow: a
+// detected profile is persisted alongside wow_path and flavor, so the
+// install carries its game version without a separate SetProfile call.
+func TestSetInstallPersistsProfile(t *testing.T) {
+	store := config.NewStoreAt(filepath.Join(t.TempDir(), "config.json"))
+	if err := store.Save(config.Default()); err != nil {
+		t.Fatal(err)
+	}
+	s := New(store)
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "_retail_", "Interface", "AddOns"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	inst, err := s.SetInstall(root, "")
+	if err != nil {
+		t.Fatalf("SetInstall failed: %v", err)
+	}
+	if inst.Flavor != detector.FlavorRetail {
+		t.Errorf("flavor = %q, want %q", inst.Flavor, detector.FlavorRetail)
+	}
+
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("reload failed: %v", err)
+	}
+	if reloaded.WoWPath != root {
+		t.Errorf("saved wow_path = %q, want %q", reloaded.WoWPath, root)
+	}
+	if reloaded.Flavor != detector.FlavorRetail {
+		t.Errorf("saved flavor = %q, want %q", reloaded.Flavor, detector.FlavorRetail)
+	}
+	if reloaded.Profile != "retail" {
+		t.Errorf("saved profile = %q, want %q", reloaded.Profile, "retail")
 	}
 }
 

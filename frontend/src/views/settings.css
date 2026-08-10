@@ -186,6 +186,63 @@
   opacity: 0.55;
 }
 
+/* ---- active install card ---- */
+
+.active-install-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.active-install-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.active-install-item {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+.active-install-key {
+  font-size: var(--micro);
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.active-install-val {
+  font-size: var(--body-sm);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.active-install-val.mono {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+
+.active-install-empty {
+  color: var(--ink-faint);
+}
+
+.active-install-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+  margin-top: var(--sp-1);
+  border-top: 1px solid var(--hairline-soft);
+}
+
 /* ---- install cards ---- */
 
 .install-cards {
@@ -434,6 +491,59 @@
 .sync-errors li svg {
   flex: none;
   margin-top: 1px;
+}
+
+/* ---- advanced disclosure ---- */
+
+.settings-advanced {
+  margin-top: var(--sp-7);
+}
+
+.settings-advanced > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  border: 1px solid var(--hairline-soft);
+  color: var(--ink-muted);
+  font-size: var(--body-sm);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.settings-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-advanced > summary svg {
+  color: var(--ink-faint);
+  transition: transform 140ms ease;
+}
+
+.settings-advanced[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.settings-advanced > summary:hover {
+  color: var(--ink);
+}
+
+.settings-advanced[open] > summary {
+  color: var(--ink);
+  border-color: var(--hairline-strong);
+  margin-bottom: var(--sp-6);
+}
+
+.advanced-summary-title {
+  font-weight: 500;
+}
+
+.advanced-summary-hint {
+  font-size: var(--micro);
+  color: var(--ink-faint);
 }
 
 /* ---- about ---- */

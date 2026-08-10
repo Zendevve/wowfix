@@ -10,7 +10,7 @@ wowfix scans your World of Warcraft `Interface/AddOns` folder, finds the common 
 
 The desktop GUI in mock mode (1440×900), showing the eight destinations:
 
-**Setup** — first-run install picker with gradient spotlight cards:
+**Setup** — zero-config first run: wowfix finds your install, scans and repairs with one click; this fallback screen appears only when no install can be found automatically:
 ![Setup](screenshots/setup.png)
 
 **Overview** — segmented health workflows: Scan, Doctor, Validation:
@@ -52,7 +52,7 @@ The desktop GUI in mock mode (1440×900), showing the eight destinations:
   6. **Empty folders** — detected, optionally trashed
   7. **Duplicate addons** — `Questie/` + `Questie-main/` → merge or delete
   8. **Broken extraction structure** — several addons dumped into one folder → promoted to top level
-- **Fix all** — repairs every detected problem with a single action; each change is backed up first, removals go to OS trash.
+- **Fix all** — one-click repair of every detected problem, with no confirmation dialog on reversible repairs: each change is backed up first, removals go to the OS trash.
 
 ### TOC validation
 - Parses every TOC, reports `Expected interface / Detected interface / Status` against any of 9 profiles: Vanilla 1.12, TurtleWoW, TBC 2.4.3, WotLK 3.3.5a, Cataclysm, Classic Era, Hardcore, Season of Discovery, Retail. TOCs are never edited.
@@ -84,7 +84,7 @@ The desktop GUI in mock mode (1440×900), showing the eight destinations:
 - **Offline catalog snapshots** — export freezes tracked addons with latest known versions into portable JSON while online; check diffs it against the registry with no network.
 
 ### Safety model
-1. **Never overwrite without confirmation** — every rename/replace/trash/restore goes through a dialog; `--yes` equivalent does not exist in GUI.
+1. **No prompts for reversible repairs** — the GUI does not ask for confirmation on reversible repairs (Fix all, per-addon fixes): every change is backed up first and removals go to the OS trash, which makes them safe to apply unprompted. Confirmation dialogs remain for genuinely destructive operations — restore-overwrite, SavedVariables reset, collection delete.
 2. **Always back up first** — each affected folder is copied to `Backups/<timestamp>/` before any change; disabled only via `auto_backup: false` config.
 3. **Never delete permanently** — removal means moving to the OS trash (Recycle Bin on Windows); if native trash fails (e.g. cross-device), a copy is kept in the fallback trash directory and the source is removed.
 4. **Permission errors are graceful** — unreadable folders are reported per-addon and never abort a scan; unwritable destinations fail with a clear message.
@@ -144,6 +144,8 @@ Open `http://localhost:5173/?mock=1&view=<view>` to render any destination with 
 
 Stored at `os.UserConfigDir()/wowfix/config.json`:
 
+On first run, `wow_path` and `flavor` are set automatically from the detected WoW install — no configuration needed; the game `profile` follows when the detected client identifies a version. The Settings view leads with the active install and behavior toggles; the raw config keys live under **Advanced**.
+
 - `wow_path` — WoW installation root
 - `flavor` — client subfolder (`_retail_`, `_classic_`, `_classic_era_`, `_classic_tbc_`, or root)
 - `profile` — one of `vanilla, turtle, tbc, wrath, cata, classic, hardcore, sod, retail`
@@ -154,13 +156,13 @@ Stored at `os.UserConfigDir()/wowfix/config.json`:
 - `collection` — the active addon-collection id (set by Collections view)
 - `collections_dir` — where collection files live (default: `<config dir>/collections`)
 
-The GUI has a Settings view for all keys; the config file can also be edited manually.
+The GUI has a Settings view for all keys (raw keys under **Advanced**); the config file can also be edited manually.
 
 ---
 
 ## Safety model
 
-See [Features → Safety model](#safety-model) above. In short: confirm → backup → trash, never permanent delete, graceful permission handling.
+See [Features → Safety model](#safety-model) above. In short: backup → trash, never permanent delete, graceful permission handling; reversible repairs never prompt for confirmation.
 
 ---
 

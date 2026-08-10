@@ -53,6 +53,10 @@ type Service struct {
 	// enabledProviders selects the catalog providers; nil enables all.
 	// Tests enable only the provider they mock.
 	enabledProviders map[string]bool
+	// autoDetect finds every WoW installation on the host; nil falls
+	// back to detector.AutoDetect. Tests point it at a temp fixture
+	// (AutoDetect cannot be pointed at temp dirs).
+	autoDetect func(context.Context) ([]detector.Installation, error)
 	// wagoDirOverride pins where Wago imports are saved; empty uses the
 	// user Downloads folder (or the config directory). Tests set it to
 	// a temp dir.
@@ -70,7 +74,7 @@ func New(store *config.Store) *Service {
 			store = config.NewStoreAt(filepath.Join(os.TempDir(), "wowfix-config.json"))
 		}
 	}
-	return &Service{store: store, log: logger.New(500), Version: "dev"}
+	return &Service{store: store, log: logger.New(500), Version: "dev", autoDetect: detector.AutoDetect}
 }
 
 // env bundles the resolved runtime context: config, detected install
@@ -1024,6 +1028,57 @@ func (s *Service) GetState() (AppState, error) {
 	if err != nil {
 		return AppState{}, err
 	}
+	if cfg.WoWPath == "" {
+		// First-run adoption: when auto-detection finds an install,
+		// adopt the best one (AutoDetect sorts best-confidence first),
+		// persist it and report the full install state, so the setup
+		// wizard only appears when nothing is detectable. The detected
+		// install's profile wins on this path; an install with empty
+		// ProfileID leaves the saved profile untouched.
+		detect := s.autoDetect
+		if detect == nil {
+			detect = detector.AutoDetect
+		}
+		if installs, err := detect(context.Background()); err == nil && len(installs) > 0 {
+			best := installs[0]
+			cfg.WoWPath = best.Root
+			cfg.Flavor = best.Flavor
+			if best.ProfileID != "" {
+				cfg.Profile = best.ProfileID
+			}
+			// A failed persist must not brick first-run boot: the
+			// adoption still applies in memory and the error is
+			// logged, not surfaced.
+			if err := s.store.Save(cfg); err != nil {
+				s.log.Errorf("auto-adopt: cannot persist install %q: %v", best.Root, err)
+			}
+			e := s.buildEnv(cfg, &best)
+			return AppState{
+				Version:       s.Version,
+				WoWPath:       e.install.Root,
+				Flavor:        e.install.Flavor,
+				AddonsDir:     e.install.AddonsPath,
+				ProfileID:     e.profile.ID,
+				ProfileName:   e.profile.Name,
+				AutoBackup:    e.cfg.AutoBackup,
+				Confirmations: e.cfg.Confirmations,
+				HasInstall:    true,
+			}, nil
+		}
+		// Nothing detected (or detection failed): report the setup
+		// state exactly as resolveInstall with no install would. Never
+		// fall through to resolveInstall here — it would re-run
+		// detection against the real machine.
+		e := s.buildEnv(cfg, nil)
+		return AppState{
+			Version:       s.Version,
+			WoWPath:       cfg.WoWPath,
+			ProfileID:     e.profile.ID,
+			ProfileName:   e.profile.Name,
+			AutoBackup:    e.cfg.AutoBackup,
+			Confirmations: e.cfg.Confirmations,
+		}, nil
+	}
 	install, err := s.resolveInstall(cfg)
 	if err != nil || install == nil {
 		// No usable install (stale saved path, nothing auto-detected):
@@ -1083,6 +1138,9 @@ func (s *Service) SetInstall(root, flavor string) (Install, error) {
 	}
 	cfg.WoWPath = inst.Root
 	cfg.Flavor = inst.Flavor
+	if inst.ProfileID != "" {
+		cfg.Profile = inst.ProfileID
+	}
 	if err := s.store.Save(cfg); err != nil {
 		return Install{}, err
 	}

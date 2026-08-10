@@ -1,7 +1,7 @@
 /* ==========================================================================
-   First-run setup. Full-window (no sidebar). Poster hero on canvas,
-   detected installs as gradient spotlight CARDS, manual entry on a
-   surface-2 form card. Token-only, per DESIGN.md.
+   First-run setup fallback. Full-window (no sidebar). Poster hero on
+   canvas, single manual path entry on a surface-2 form card. Token-only,
+   per DESIGN.md.
    ========================================================================== */
 
 .setup-page {
@@ -43,113 +43,6 @@
   line-height: var(--body-lh);
   letter-spacing: var(--body-ls);
   max-width: 56ch;
-}
-
-/* ---- detected installs ---- */
-
-.setup-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-4);
-}
-
-.setup-section-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--sp-3);
-}
-
-.setup-section-title {
-  font-family: var(--font-display);
-  font-size: var(--sub);
-  font-weight: 500;
-  line-height: var(--sub-lh);
-  letter-spacing: var(--sub-ls);
-}
-
-.setup-section-status {
-  color: var(--ink-faint);
-  font-size: var(--caption);
-  font-weight: var(--caption-w);
-  letter-spacing: var(--caption-ls);
-}
-
-.setup-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: var(--sp-5);
-}
-
-.setup-detecting {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-2);
-  color: var(--ink-muted);
-  font-size: var(--body);
-  line-height: var(--body-lh);
-  padding: var(--sp-5);
-}
-
-.setup-detecting svg {
-  animation: setup-spin 0.9s linear infinite;
-  color: var(--ink-faint);
-}
-
-/* Spotlight cards are clickable install choices here. */
-.setup-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--sp-2);
-  text-align: left;
-  cursor: pointer;
-  transition: transform 140ms ease, box-shadow 140ms ease;
-  font-family: var(--font-body);
-}
-
-.setup-card:hover:not(:disabled) {
-  transform: translateY(-2px);
-}
-
-.setup-card:disabled {
-  cursor: default;
-  opacity: 0.7;
-}
-
-.setup-card .setup-card-path {
-  overflow-wrap: anywhere;
-}
-
-.setup-card.selected {
-  box-shadow:
-    0 0 0 2px var(--accent-strong),
-    0 10px 30px rgba(0, 0, 0, 0.25);
-}
-
-.setup-card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  margin-top: var(--sp-2);
-}
-
-.setup-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
-  background: rgba(0, 0, 0, 0.24);
-  color: rgba(247, 247, 246, 0.92);
-  font-size: var(--caption);
-  font-weight: var(--caption-w);
-  line-height: var(--caption-lh);
-  letter-spacing: var(--caption-ls);
-}
-
-.setup-chip.-on {
-  background: rgba(255, 255, 255, 0.92);
-  color: #0b0b0a;
 }
 
 /* ---- manual entry form ---- */
@@ -220,44 +113,6 @@
   line-height: var(--micro-lh);
 }
 
-.setup-fields-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--sp-4);
-}
-
-.setup-select {
-  position: relative;
-}
-
-.setup-select select {
-  width: 100%;
-  appearance: none;
-  -webkit-appearance: none;
-  background: var(--surface-1);
-  color: var(--ink);
-  font-size: var(--body);
-  line-height: var(--body-lh);
-  letter-spacing: var(--body-ls);
-  padding: 10px 36px 10px 14px;
-  border: 1px solid var(--border-field);
-  border-radius: var(--r-md);
-}
-
-.setup-select select:focus-visible {
-  outline: none;
-  box-shadow: var(--ring-focus);
-}
-
-.setup-select svg {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--ink-muted);
-  pointer-events: none;
-}
-
 .setup-error {
   display: flex;
   align-items: flex-start;
@@ -292,11 +147,5 @@
 @keyframes setup-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@media (max-width: 810px) {
-  .setup-fields-row {
-    grid-template-columns: 1fr;
   }
 }
